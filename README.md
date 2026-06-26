@@ -1,6 +1,18 @@
-# 🏠 Yad2 Apartment Finder Bot v2.0
+# 🏠 Apartment Finder Bot
 
-Automated scraper + dashboard for finding Tel Aviv rental apartments on yad2.co.il.
+Automated scraper + dashboard for finding rental apartments on yad2.co.il.
+Currently configured for the **Haifa coastal-north region** (Haifa + Tirat Carmel),
+but the search is fully configurable — including **by replying to the alert emails**.
+
+## Features
+
+- 🔎 Scrapes Yad2's internal Next.js feed (TLS-impersonation to pass Cloudflare)
+- 🗺️ Targets specific cities + neighborhoods, filtered by price/rooms/size
+- 📧 Ranked HTML email alerts (photos, top 10 most relevant) to multiple recipients
+- 🚫 Never emails the same listing twice
+- ✉️ **Change the filter by replying to an alert in plain language** (Hebrew/English) — see below
+- 🖥️ Local web dashboard
+- ⏰ Runs unattended once a day via Windows Task Scheduler
 
 ## Quick Start
 
@@ -10,77 +22,100 @@ pip install -r requirements.txt
 # Secrets (email + Gemini key) live in .env, NOT in config.json:
 cp .env.example .env   # then edit .env with your real values
 
-# Continuous mode:
-python run.py # (the bot will scan all relevant apratments based on the configuration in the config.json file.
-
-# Dashboard:
-# Once you see on the screen "Next in 3h... " open your dashboard using: http://localhost:8080
-
-# to reset the db:
-
+python run.py            # dashboard + continuous scraper
+# or a single scan:
+python scraper.py --once
+# dashboard only → http://localhost:8080
+python server.py
+# reset the database:
 python scraper.py --reset
-
 ```
 
-**Important:** `curl_cffi` is the key dependency — it impersonates Chrome's TLS fingerprint to bypass Cloudflare. Without it, Yad2 will block you.
+**Important:** `curl_cffi` is the key dependency — it impersonates Chrome's TLS
+fingerprint to bypass Cloudflare. Without it, Yad2 will block you.
 
-## What's Configurable (config.json)
+## Secrets — `.env` (never committed)
 
-Edit `config.json` to control everything — no code changes needed:
+All credentials live in `.env` (gitignored). Copy `.env.example` and fill in:
 
-| Section | What you control |
-|---------|-----------------|
-| `search.rooms_min/max` | Room range (default 2–3) |
-| `search.price_min/max` | Price range in ₪ (default 7000–10000) |
-| `search.exclude_ground_floor` | Skip ground floor (default true) |
-| `target_areas.hebrew` | Hebrew neighborhood/street keywords |
-| `target_areas.english` | English area keywords |
-| `schedule.interval_hours` | Hours between scans (default 3) |
-| `schedule.delay_between_requests_sec` | Politeness delay (default 2.5s) |
-| `notifications.telegram_*` | Telegram bot alerts |
-| `notifications.email_*` | Email alerts via SMTP |
-| `dashboard_port` | Web server port (default 8080) |
+| Variable | Purpose |
+|----------|---------|
+| `EMAIL_USER` / `EMAIL_PASS` | Gmail sender — use a **dedicated account + App Password**, not your login password |
+| `EMAIL_TO` | Comma-separated alert recipients |
+| `GEMINI_API_KEY` | Google AI Studio key — for free-text email preference parsing (optional) |
+| `ALLOWED_SENDERS` | Comma-separated senders allowed to change preferences by email |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional Telegram alerts |
 
-Config is reloaded every cycle — edit it live without restarting.
+`config.json` holds **only non-secret search settings** — secrets are overlaid from
+`.env` at runtime and are never written back to `config.json`.
+
+## The filter is not fixed — it can change
+
+There are **two ways** to change what the bot searches for, and the change applies on
+the very next scan (`config.json` is re-read every run — no restart needed):
+
+### 1. Edit `config.json` directly
+
+| Setting | Controls |
+|---------|----------|
+| `search.region_slug` | Yad2 region slug (e.g. `coastal-north` = Haifa area, `tel-aviv-area` = TLV) |
+| `search.cities` | List of numeric Yad2 city IDs (e.g. `4000`=Haifa, `2100`=Tirat Carmel) |
+| `search.price_min/max` | Rent range in ₪ |
+| `search.rooms_min/max` | Room range |
+| `search.min_sqm` | Minimum size (m²) |
+| `search.exclude_ground_floor` | Skip ground floor |
+| `target_areas.hebrew` / `english` | Neighborhood/city keywords — narrows results client-side |
+| `notifications.email_top_n` | How many listings per email (default 10) |
+| `dashboard_port` | Dashboard port |
+
+To find IDs for a new area, query Yad2's address API:
+`https://gw.yad2.co.il/address-autocomplete/realestate/v2?text=<URL-encoded Hebrew>`
+(returns `cityId`, `hoodId`, `regionHeb` — the region slug is the kebab-case English of `regionHeb`).
+
+### 2. Reply to an alert email (no file editing) ⭐
+
+Reply to any alert from a whitelisted address and write what you want — **in plain
+Hebrew or English**. Gemini converts it to commands; a deterministic parser applies
+them and rewrites `config.json`. You get a **confirmation email** back listing the changes.
+
+Examples (just write naturally):
+> תעלה את התקציב ל-4000 ותוסיף את שכונת רמות רמז
+
+> lower max price to 3200 and drop Tirat Carmel
+
+Under the hood it maps to fixed commands (you can also write these directly):
+`maxprice N` · `minprice N` · `maxrooms N` · `minrooms N` · `minsqm N` ·
+`exclude_ground on|off` · `parking on|off` · `topn N` · `area+ <name>` · `area- <name>`
+
+Only senders in `ALLOWED_SENDERS` can change settings. The LLM only *translates* text
+to commands — it never edits the config itself; the deterministic parser does, so an
+unrecognized request is safely ignored.
 
 ## How It Works
 
-1. **API-based** — Hits Yad2's internal JSON feed (`gw.yad2.co.il/feed-search-legacy/realestate/rent`) with URL params: `topArea=2&area=1&city=5000&rooms=2-3&price=7000-10000`
-2. **Cloudflare bypass** — Uses `cloudscraper` with rotating User-Agents
-3. **Area filtering** — Matches listings against Hebrew/English neighborhood keywords (צפון הישן, רוטשילד, הבימה, רידינג, etc.)
-4. **New detection** — SQLite tracks every listing ID; new ones get flagged and highlighted
-5. **Sorting** — New listings first → with parking → lower price
-6. **Notifications** — Optional Telegram and/or email alerts for new finds
+1. **Build ID** — extracts Yad2's Next.js `BUILD_ID` from the page HTML (retried hard; the page is Cloudflare-throttled). The feed lives at `/realestate/_next/data/{BUILD_ID}/rent/{region_slug}.json`.
+2. **Per-city queries** — Yad2 ignores neighborhood filters server-side and won't combine cities, so each city in `search.cities` is queried separately and paginated.
+3. **Filter** — price/rooms/size enforced in `parse_listing()`; neighborhoods narrowed client-side by `target_areas` keyword match.
+4. **Dedup + new detection** — SQLite tracks every listing token; a `notified` flag ensures each listing is emailed once ever.
+5. **Rank + notify** — top `email_top_n` never-emailed listings, ordered by area priority → cheaper → parking → bigger, sent as an HTML card email.
+6. **Inbound email** — before each scan, reads whitelisted reply emails and updates the search (see above).
+
+## Automation (Windows Task Scheduler)
+
+Runs unattended via a task named **`Yad2ApartmentFinder`** — daily at **08:00**,
+headless (`pythonw`), survives reboot (catches up if the PC was off). It runs
+`python scraper.py --once`. To change the time/frequency, edit that task in Task Scheduler.
 
 ## Files
 
 ```
-config.json       ← Edit this to control everything
-scraper.py        ← Main bot (run this)
-server.py         ← Dashboard web server
-dashboard.html    ← Frontend UI
+config.json       ← non-secret search settings (committed)
+.env              ← secrets (gitignored — copy from .env.example)
+scraper.py        ← main bot
+server.py         ← dashboard web server
+dashboard.html    ← frontend UI
 requirements.txt  ← Python dependencies
-apartments.db     ← SQLite database (auto-created)
-apartments.json   ← Dashboard data (auto-created)
-scraper.log       ← Timestamped log
+apartments.db     ← SQLite database (auto-created, gitignored)
+apartments.json   ← dashboard data (auto-created, gitignored)
+scraper.log       ← timestamped log (gitignored)
 ```
-
-## Telegram Setup
-
-1. Message @BotFather on Telegram → `/newbot` → get token
-2. Message @userinfobot → get your chat ID
-3. Edit config.json:
-```json
-"telegram_enabled": true,
-"telegram_bot_token": "123456:ABC...",
-"telegram_chat_id": "987654321"
-```
-
-## Cron (alternative to continuous mode)
-
-```bash
-# Scan every 3 hours
-0 */3 * * * cd /path/to/yad2-bot && python scraper.py --once
-```
-
-
