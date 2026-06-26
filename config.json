@@ -1,0 +1,50 @@
+{
+  "search": {
+    "region_slug": "coastal-north",
+    "cities": [
+      4000,
+      2100
+    ],
+    "rooms_min": 0,
+    "rooms_max": 99,
+    "price_min": 0,
+    "price_max": 3800,
+    "exclude_ground_floor": false,
+    "prefer_parking": true,
+    "require_elevator": false,
+    "min_sqm": 0
+  },
+  "target_areas": {
+    "hebrew": [
+      "נווה דוד",
+      "נאות פרס",
+      "טירת כרמל"
+    ],
+    "english": []
+  },
+  "schedule": {
+    "interval_hours": 3,
+    "delay_between_requests_sec": 2.5,
+    "max_pages": 10,
+    "timeout_sec": 30
+  },
+  "notifications": {
+    "telegram_enabled": false,
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "email_enabled": true,
+    "email_smtp": "smtp.gmail.com",
+    "email_port": 587,
+    "email_user": "",
+    "email_pass": "",
+    "email_to": "",
+    "email_top_n": 10,
+    "imap_enabled": true,
+    "imap_server": "imap.gmail.com",
+    "allowed_senders": [],
+    "gemini_enabled": true,
+    "gemini_api_key": "",
+    "gemini_model": "gemini-flash-latest"
+  },
+  "dashboard_port": 8080
+}

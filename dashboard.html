@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yad2 Apartment Finder</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0b0b0f;--s1:#131318;--s2:#1a1a22;--s3:#22222c;
+  --bdr:#2a2a36;--txt:#e4e2de;--dim:#7c7c84;--dim2:#55555c;
+  --accent:#00d4aa;--accent2:#0af;--warn:#ff6b35;
+  --park:#a78bfa;--price:#fbbf24;--r:10px;
+}
+body{background:var(--bg);color:var(--txt);font-family:'Heebo',sans-serif;min-height:100vh}
+
+/* HEADER */
+.hdr{padding:1.6rem 2rem 1rem;border-bottom:1px solid var(--bdr);
+  background:linear-gradient(180deg,#101018 0%,var(--bg) 100%)}
+.hdr h1{font-family:'IBM Plex Mono',monospace;font-size:1.5rem;color:var(--accent);letter-spacing:-0.5px;display:flex;align-items:center;gap:10px}
+.hdr h1 span{font-size:1.8rem}
+.hdr .sub{color:var(--dim);font-size:.82rem;margin-top:3px}
+.stats{display:flex;gap:1.8rem;margin-top:.8rem;flex-wrap:wrap}
+.stat .v{font-family:'IBM Plex Mono',monospace;font-size:1.5rem;color:var(--accent2)}
+.stat .l{font-size:.65rem;color:var(--dim);text-transform:uppercase;letter-spacing:1.2px}
+
+/* TOOLBAR */
+.toolbar{padding:.7rem 2rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;
+  border-bottom:1px solid var(--bdr);background:var(--s1)}
+.toolbar .sep{width:1px;height:22px;background:var(--bdr);margin:0 .3rem}
+.btn{background:var(--s2);border:1px solid var(--bdr);color:var(--txt);
+  padding:5px 13px;border-radius:18px;cursor:pointer;font-family:'Heebo';
+  font-size:.8rem;transition:all .15s;white-space:nowrap}
+.btn:hover,.btn.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.btn.warn.on{background:var(--warn);border-color:var(--warn)}
+.srch{background:var(--s2);border:1px solid var(--bdr);color:var(--txt);
+  padding:5px 12px;border-radius:18px;font-family:'Heebo';font-size:.8rem;
+  width:180px;outline:none}
+.srch:focus{border-color:var(--accent)}
+.srch::placeholder{color:var(--dim2)}
+
+/* CONFIG BAR */
+.cfgbar{padding:.5rem 2rem;background:var(--s1);border-bottom:1px solid var(--bdr);
+  font-size:.75rem;color:var(--dim);display:flex;gap:1.5rem;flex-wrap:wrap}
+.cfgbar b{color:var(--txt);font-weight:500}
+
+/* GRID */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+  gap:1.1rem;padding:1.2rem 2rem 3rem}
+
+/* CARD */
+.card{background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);
+  overflow:hidden;transition:transform .18s,border-color .18s;position:relative}
+.card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.card.new{border-color:var(--warn)}
+.card.new::after{content:'חדש!';position:absolute;top:10px;left:10px;
+  background:var(--warn);color:#fff;font-size:.65rem;font-weight:700;
+  padding:2px 9px;border-radius:14px;z-index:2;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.65}}
+
+.cimg{width:100%;height:190px;object-fit:cover;background:var(--s2);cursor:zoom-in;display:block}
+.cimg-ph{width:100%;height:190px;background:var(--s2);display:flex;align-items:center;
+  justify-content:center;color:var(--dim);font-size:2.2rem}
+.img-count{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.7);
+  color:#fff;font-size:.65rem;padding:2px 8px;border-radius:10px}
+
+.cbody{padding:.9rem 1.1rem}
+.c-addr{font-weight:700;font-size:.95rem;line-height:1.3;margin-bottom:2px}
+.c-hood{color:var(--dim);font-size:.75rem;margin-bottom:.6rem}
+.c-area{display:inline-block;background:var(--s3);color:var(--accent);
+  font-size:.6rem;padding:1px 7px;border-radius:8px;margin-bottom:.5rem}
+.c-price{font-family:'IBM Plex Mono',monospace;font-size:1.2rem;color:var(--price);
+  font-weight:600;margin-bottom:.6rem}
+.c-details{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;
+  font-size:.8rem;margin-bottom:.6rem}
+.c-details .d{display:flex;align-items:center;gap:5px}
+.c-details .ic{font-size:.95rem}
+.c-tags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:.7rem}
+.tag{font-size:.65rem;padding:2px 7px;border-radius:10px;border:1px solid var(--bdr);color:var(--dim)}
+.tag.pk{color:var(--park);border-color:var(--park)}
+.tag.el{color:var(--accent2);border-color:var(--accent2)}
+.c-link{display:block;text-align:center;background:var(--accent);color:var(--bg);
+  padding:7px;border-radius:7px;text-decoration:none;font-weight:700;
+  font-size:.85rem;transition:opacity .15s}
+.c-link:hover{opacity:.8}
+.c-date{font-size:.65rem;color:var(--dim2);margin-top:.4rem;text-align:left;direction:ltr}
+
+/* EMPTY */
+.empty{text-align:center;padding:4rem 2rem;color:var(--dim)}
+.empty .big{font-size:3rem;margin-bottom:.8rem}
+
+/* GALLERY OVERLAY */
+.gal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:100;
+  align-items:center;justify-content:center}
+.gal.open{display:flex}
+.gal img{max-width:90vw;max-height:82vh;border-radius:8px;object-fit:contain}
+.gal-nav{position:absolute;top:50%;transform:translateY(-50%);background:var(--accent);
+  color:var(--bg);border:none;font-size:1.4rem;cursor:pointer;width:42px;height:42px;
+  border-radius:50%;display:flex;align-items:center;justify-content:center}
+.gal-nav.prev{right:1.5rem}.gal-nav.next{left:1.5rem}
+.gal-close{position:absolute;top:1rem;left:1rem;background:none;border:none;
+  color:#fff;font-size:2rem;cursor:pointer}
+.gal-counter{position:absolute;bottom:1.5rem;left:50%;transform:translateX(-50%);
+  color:#fff;font-size:.85rem;background:rgba(0,0,0,.6);padding:4px 14px;border-radius:12px}
+
+/* RESPONSIVE */
+@media(max-width:600px){
+  .grid{grid-template-columns:1fr;padding:1rem}
+  .hdr,.toolbar,.cfgbar{padding-right:1rem;padding-left:1rem}
+  .stats{gap:1rem}
+}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1><span>🏠</span> YAD2 FINDER</h1>
+  <div class="sub" id="configInfo">Loading...</div>
+  <div class="stats">
+    <div class="stat"><span class="v" id="sTotal">-</span><span class="l">סה״כ</span></div>
+    <div class="stat"><span class="v" id="sNew">-</span><span class="l">חדשות</span></div>
+    <div class="stat"><span class="v" id="sPark">-</span><span class="l">עם חנייה</span></div>
+    <div class="stat"><span class="v" id="sAgent">-</span><span class="l">פרטי</span></div>
+    <div class="stat"><span class="v" id="sUpdate">-</span><span class="l">עדכון</span></div>
+  </div>
+</div>
+
+<div class="cfgbar" id="cfgbar"></div>
+
+<div class="toolbar">
+  <button class="btn on" data-f="all">הכל</button>
+  <button class="btn warn" data-f="new">🆕 חדשות</button>
+  <button class="btn" data-f="parking">🅿️ חנייה</button>
+  <button class="btn" data-f="private">👤 פרטי</button>
+  <div class="sep"></div>
+  <button class="btn" data-f="price-asc">💰 ↑</button>
+  <button class="btn" data-f="price-desc">💰 ↓</button>
+  <button class="btn" data-f="newest">🕐 חדש</button>
+  <div class="sep"></div>
+  <input class="srch" id="search" placeholder="חיפוש כתובת / שכונה..." type="text">
+</div>
+
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty" style="display:none">
+  <div class="big">🔍</div>
+  <p>אין דירות עדיין. הפעל: <code style="color:var(--accent)">python scraper.py --once</code></p>
+</div>
+
+<div class="gal" id="gal">
+  <button class="gal-close" onclick="galClose()">✕</button>
+  <button class="gal-nav prev" onclick="galNav(-1)">‹</button>
+  <img id="galImg" src="">
+  <button class="gal-nav next" onclick="galNav(1)">›</button>
+  <div class="gal-counter" id="galCounter"></div>
+</div>
+
+<script>
+let DATA=[], FILT=[], galImgs=[], galIdx=0;
+
+async function load(){
+  try{
+    const r=await fetch('/api/apartments');
+    const d=await r.json();
+    DATA=d.apartments||[];
+    document.getElementById('sTotal').textContent=DATA.length;
+    document.getElementById('sNew').textContent=DATA.filter(a=>a.is_new).length;
+    document.getElementById('sPark').textContent=DATA.filter(a=>a.parking).length;
+    document.getElementById('sAgent').textContent=DATA.filter(a=>!a.is_agent).length;
+    document.getElementById('sUpdate').textContent=d.updated?new Date(d.updated).toLocaleString('he-IL'):'-';
+    if(d.config){
+      document.getElementById('configInfo').textContent=
+        `${d.config.rooms} חדרים | ${d.config.price} | ${(d.config.areas||[]).join(', ')}`;
+      document.getElementById('cfgbar').innerHTML=
+        `<span>חדרים: <b>${d.config.rooms}</b></span>`+
+        `<span>מחיר: <b>${d.config.price}</b></span>`+
+        `<span>אזורים: <b>${(d.config.areas||[]).join(', ')}</b></span>`;
+    }
+    FILT=[...DATA];
+    render(FILT);
+  }catch(e){
+    document.getElementById('empty').style.display='block';
+  }
+}
+
+function render(list){
+  const g=document.getElementById('grid'), em=document.getElementById('empty');
+  if(!list.length){g.innerHTML='';em.style.display='block';return}
+  em.style.display='none';
+  g.innerHTML=list.map((a,i)=>{
+    const imgHtml=a.images&&a.images.length
+      ?`<img class="cimg" src="${a.images[0]}" loading="lazy" onclick="galOpen(${DATA.indexOf(a)})"
+         onerror="this.outerHTML='<div class=cimg-ph>🏠</div>'">`
+      :`<div class="cimg-ph">🏠</div>`;
+    const imgCount=a.images&&a.images.length>1
+      ?`<div class="img-count">📷 ${a.images.length}</div>`:'';
+    const tags=[];
+    if(a.parking)tags.push('<span class="tag pk">🅿️ חנייה</span>');
+    if(a.elevator)tags.push('<span class="tag el">מעלית</span>');
+    if(a.mamad)tags.push('<span class="tag">ממ״ד</span>');
+    if(a.balcony)tags.push('<span class="tag">מרפסת</span>');
+    if(a.ac)tags.push('<span class="tag">מיזוג</span>');
+    if(!a.is_agent)tags.push('<span class="tag" style="color:#4ade80;border-color:#4ade80">פרטי</span>');
+
+    const floorTxt=a.floor!=null?(a.total_floors?`${a.floor}/${a.total_floors}`:a.floor):'?';
+    const areaTag=a.area_match?`<div class="c-area">📍 ${a.area_match}</div>`:'';
+
+    return`<div class="card ${a.is_new?'new':''}">
+      ${imgCount}${imgHtml}
+      <div class="cbody">
+        <div class="c-addr">${a.address||a.title||'כתובת לא ידועה'}</div>
+        <div class="c-hood">${a.neighborhood||''}</div>
+        ${areaTag}
+        <div class="c-price">₪${(a.price||0).toLocaleString()}</div>
+        <div class="c-details">
+          <div class="d"><span class="ic">🛏</span>${a.rooms||'?'} חדרים</div>
+          <div class="d"><span class="ic">🏢</span>קומה ${floorTxt}</div>
+          <div class="d"><span class="ic">📐</span>${a.size_sqm||'?'} מ״ר</div>
+          <div class="d"><span class="ic">📷</span>${(a.images||[]).length} תמונות</div>
+        </div>
+        <div class="c-tags">${tags.join('')}</div>
+        <a class="c-link" href="${a.link}" target="_blank" rel="noopener">צפה ביד2 →</a>
+        ${a.entry_date?`<div class="c-date">כניסה: ${a.entry_date}</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// FILTERS
+let activeFilter='all';
+document.querySelector('.toolbar').addEventListener('click',e=>{
+  if(e.target.tagName!=='BUTTON')return;
+  const f=e.target.dataset.f;if(!f)return;
+  document.querySelectorAll('.toolbar .btn[data-f]').forEach(b=>b.classList.remove('on'));
+  e.target.classList.add('on');
+  activeFilter=f;
+  applyFilters();
+});
+document.getElementById('search').addEventListener('input',()=>applyFilters());
+
+function applyFilters(){
+  let list=[...DATA];
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  if(q) list=list.filter(a=>`${a.address} ${a.neighborhood} ${a.street} ${a.title} ${a.area_match}`.toLowerCase().includes(q));
+  switch(activeFilter){
+    case'new':list=list.filter(a=>a.is_new);break;
+    case'parking':list=list.filter(a=>a.parking);break;
+    case'private':list=list.filter(a=>!a.is_agent);break;
+    case'price-asc':list.sort((a,b)=>(a.price||0)-(b.price||0));break;
+    case'price-desc':list.sort((a,b)=>(b.price||0)-(a.price||0));break;
+    case'newest':list.sort((a,b)=>new Date(b.first_seen||0)-new Date(a.first_seen||0));break;
+  }
+  FILT=list;
+  render(list);
+}
+
+// GALLERY
+function galOpen(idx){
+  galImgs=DATA[idx].images||[];galIdx=0;
+  if(!galImgs.length)return;
+  document.getElementById('galImg').src=galImgs[0];
+  document.getElementById('galCounter').textContent=`1 / ${galImgs.length}`;
+  document.getElementById('gal').classList.add('open');
+}
+function galClose(){document.getElementById('gal').classList.remove('open')}
+function galNav(d){
+  galIdx=(galIdx+d+galImgs.length)%galImgs.length;
+  document.getElementById('galImg').src=galImgs[galIdx];
+  document.getElementById('galCounter').textContent=`${galIdx+1} / ${galImgs.length}`;
+}
+document.getElementById('gal').addEventListener('click',e=>{if(e.target===e.currentTarget)galClose()});
+document.addEventListener('keydown',e=>{
+  if(!document.getElementById('gal').classList.contains('open'))return;
+  if(e.key==='Escape')galClose();
+  if(e.key==='ArrowLeft')galNav(1);
+  if(e.key==='ArrowRight')galNav(-1);
+});
+
+load();
+setInterval(load,60000);
+</script>
+</body>
+</html>
