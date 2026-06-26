@@ -1,18 +1,18 @@
 # 🏠 Apartment Finder Bot
 
 Automated scraper + dashboard for finding rental apartments on yad2.co.il.
-Currently configured for the **Haifa coastal-north region** (Haifa + Tirat Carmel),
-but the search is fully configurable — including **by replying to the alert emails**.
+The search area, price, and filters are fully configurable — and can even be
+changed **by replying to the alert emails**.
 
 ## Features
 
 - 🔎 Scrapes Yad2's internal Next.js feed (TLS-impersonation to pass Cloudflare)
-- 🗺️ Targets specific cities + neighborhoods, filtered by price/rooms/size
-- 📧 Ranked HTML email alerts (photos, top 10 most relevant) to multiple recipients
+- 🗺️ Targets any city/region + neighborhoods, filtered by price/rooms/size
+- 📧 Ranked HTML email alerts (photos, top N most relevant) to multiple recipients
 - 🚫 Never emails the same listing twice
 - ✉️ **Change the filter by replying to an alert in plain language** (Hebrew/English) — see below
 - 🖥️ Local web dashboard
-- ⏰ Runs unattended once a day via Windows Task Scheduler
+- ⏰ Runs unattended on a schedule via Windows Task Scheduler
 
 ## Quick Start
 
@@ -58,19 +58,21 @@ the very next scan (`config.json` is re-read every run — no restart needed):
 
 | Setting | Controls |
 |---------|----------|
-| `search.region_slug` | Yad2 region slug (e.g. `coastal-north` = Haifa area, `tel-aviv-area` = TLV) |
-| `search.cities` | List of numeric Yad2 city IDs (e.g. `4000`=Haifa, `2100`=Tirat Carmel) |
+| `search.region_slug` | Yad2 region landing-page slug |
+| `search.cities` | List of numeric Yad2 city IDs |
 | `search.price_min/max` | Rent range in ₪ |
 | `search.rooms_min/max` | Room range |
 | `search.min_sqm` | Minimum size (m²) |
 | `search.exclude_ground_floor` | Skip ground floor |
 | `target_areas.hebrew` / `english` | Neighborhood/city keywords — narrows results client-side |
-| `notifications.email_top_n` | How many listings per email (default 10) |
+| `notifications.email_top_n` | How many listings per email |
 | `dashboard_port` | Dashboard port |
 
-To find IDs for a new area, query Yad2's address API:
+To find the codes for any area, query Yad2's address API:
 `https://gw.yad2.co.il/address-autocomplete/realestate/v2?text=<URL-encoded Hebrew>`
-(returns `cityId`, `hoodId`, `regionHeb` — the region slug is the kebab-case English of `regionHeb`).
+It returns each match's `cityId`, `hoodId`, and `regionHeb`. Put the `cityId`(s) in
+`search.cities`; the `region_slug` is the kebab-case English of `regionHeb`. All cities
+in one config should belong to the same region slug.
 
 ### 2. Reply to an alert email (no file editing) ⭐
 
@@ -79,9 +81,9 @@ Hebrew or English**. Gemini converts it to commands; a deterministic parser appl
 them and rewrites `config.json`. You get a **confirmation email** back listing the changes.
 
 Examples (just write naturally):
-> תעלה את התקציב ל-4000 ותוסיף את שכונת רמות רמז
+> raise the budget to 4000 and add the <neighborhood> area
 
-> lower max price to 3200 and drop Tirat Carmel
+> lower max price and drop the <city> listings
 
 Under the hood it maps to fixed commands (you can also write these directly):
 `maxprice N` · `minprice N` · `maxrooms N` · `minrooms N` · `minsqm N` ·
@@ -102,9 +104,10 @@ unrecognized request is safely ignored.
 
 ## Automation (Windows Task Scheduler)
 
-Runs unattended via a task named **`Yad2ApartmentFinder`** — daily at **08:00**,
-headless (`pythonw`), survives reboot (catches up if the PC was off). It runs
-`python scraper.py --once`. To change the time/frequency, edit that task in Task Scheduler.
+Runs unattended via a task named **`Yad2ApartmentFinder`** — headless (`pythonw`),
+survives reboot (catches up if the PC was off). It runs `python scraper.py --once`
+on whatever schedule you set. Edit the task in Task Scheduler to change the time or
+frequency.
 
 ## Files
 
