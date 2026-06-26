@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Dashboard server. Run: python server.py → open http://localhost:8080"""
-import http.server, json
+import http.server, json, sys
 from pathlib import Path
+
+# Windows consoles default to cp1252 and choke on the → arrow below.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
 
 DIR = Path(__file__).parent
 CFG = json.loads((DIR / "config.json").read_text(encoding="utf-8"))
