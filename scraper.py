@@ -216,7 +216,7 @@ def apply_email_commands(cfg):
     allowed = {a.strip().lower() for a in n.get("allowed_senders", [])}
     applied_all = []
     try:
-        M = imaplib.IMAP4_SSL(n.get("imap_server", "imap.gmail.com"))
+        M = imaplib.IMAP4_SSL(n.get("imap_server", "imap.gmail.com"), timeout=30)
         M.login(n["email_user"], n["email_pass"])
         M.select("INBOX")
         typ, data = M.search(None, "UNSEEN")
@@ -279,7 +279,7 @@ def send_pref_confirmation(applied, cfg):
     msg.attach(MIMEText(plain, "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
     try:
-        with smtplib.SMTP(n["email_smtp"], n["email_port"]) as srv:
+        with smtplib.SMTP(n["email_smtp"], n["email_port"], timeout=30) as srv:
             srv.starttls(); srv.login(n["email_user"], n["email_pass"]); srv.send_message(msg)
         log.info(f"Preference confirmation sent ({len(applied)} change(s))")
     except Exception as e:
@@ -845,7 +845,7 @@ def notify_email(apts, cfg):
     msg.attach(MIMEText(plain, "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
     try:
-        with smtplib.SMTP(n["email_smtp"], n["email_port"]) as s:
+        with smtplib.SMTP(n["email_smtp"], n["email_port"], timeout=30) as s:
             s.starttls(); s.login(n["email_user"], n["email_pass"]); s.send_message(msg)
         log.info(f"Email sent ({len(apts)} listings)")
     except Exception as e:
