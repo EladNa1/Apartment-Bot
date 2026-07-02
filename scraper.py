@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Yad2 Apartment Scraper v3.0
+Yad2 Apartment Scraper v3.1
 ============================
-Uses Yad2's actual Next.js _next/data endpoint (discovered April 2026).
+Fetches listings from Yad2's API gateway (gw.yad2.co.il) realestate feed.
 
 URL pattern:
-  https://www.yad2.co.il/realestate/_next/data/{BUILD_ID}/rent/tel-aviv-area.json
-  ?minRooms=2&maxRooms=3&multiCity=5000&minPrice=7000&maxPrice=10000&slug=tel-aviv-area
+  https://gw.yad2.co.il/realestate-feed/rent/feed?region=5&city=4000&maxPrice=3800&page=1
 
-The BUILD_ID changes on each Yad2 deploy — we extract it from the main page.
+Switched off the www _next/data endpoint (2026-07): the www host is
+Cloudflare-blocked (TLS connection-reset), while the gw gateway is not — and gw
+needs no rotating BUILD_ID. See GW_FEED_MIGRATION_PLAN.md.
 
 Usage:
   python scraper.py --debug    # Test connectivity
@@ -17,7 +18,7 @@ Usage:
   python scraper.py --reset    # Clear DB
 """
 
-import json, logging, os, random, re, smtplib, sqlite3, sys, time
+import json, logging, os, random, smtplib, sqlite3, sys, time
 from datetime import datetime
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -291,6 +292,12 @@ YAD2_BASE = "https://www.yad2.co.il"
 YAD2_RENT_PAGE = f"{YAD2_BASE}/realestate/rent"
 ITEM_URL = f"{YAD2_BASE}/item/{{}}"
 
+# The main www host is heavily Cloudflare-blocked (TLS connection-reset on this
+# network), so we fetch listings from Yad2's API gateway instead. The gw feed
+# returns the SAME listing shape as the old _next/data endpoint but needs no
+# BUILD_ID. See GW_FEED_MIGRATION_PLAN.md.
+GW_FEED = "https://gw.yad2.co.il/realestate-feed/rent/feed"
+
 UAS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 Version/17.5 Safari/605.1.15",
@@ -303,7 +310,8 @@ def hdrs():
         "User-Agent": random.choice(UAS),
         "Accept": "application/json, text/html, */*",
         "Accept-Language": "he-IL,he;q=0.9,en;q=0.7",
-        "Referer": YAD2_RENT_PAGE,
+        "Origin": YAD2_BASE,
+        "Referer": f"{YAD2_BASE}/",
     }
 
 def fetch(url, as_json=True, retries=3):
@@ -326,64 +334,27 @@ def fetch(url, as_json=True, retries=3):
 
 
 # ============================================================================
-# BUILD ID EXTRACTION
-# ============================================================================
-
-def _extract_build_id(html):
-    """Pull the Next.js build ID out of page HTML, trying several patterns."""
-    if not html:
-        return None
-    # Pattern 1: __NEXT_DATA__ JSON (most reliable on current Yad2)
-    m = re.search(r'"buildId"\s*:\s*"([^"]+)"', html)
-    if m:
-        return m.group(1), "__NEXT_DATA__"
-    # Pattern 2: _next/data/BUILD_ID/ in script src
-    m = re.search(r'/_next/data/([a-zA-Z0-9_-]+)/', html)
-    if m:
-        return m.group(1), "_next/data"
-    # Pattern 3: any _next/static/BUILD_ID
-    m = re.search(r'/_next/static/([a-zA-Z0-9_-]{10,})/', html)
-    if m:
-        return m.group(1), "_next/static"
-    return None
-
-
-def get_build_id(rounds=6):
-    """Extract the Next.js build ID from the main Yad2 page.
-
-    The main HTML page is heavily Cloudflare-throttled and resets the connection
-    on most attempts, so we retry generously — it succeeds roughly 1 in 6 tries.
-    """
-    for r in range(rounds):
-        html = fetch(YAD2_RENT_PAGE, as_json=False, retries=4)
-        found = _extract_build_id(html)
-        if found:
-            bid, src = found
-            log.info(f"Build ID (from {src}): {bid}")
-            return bid
-        log.warning(f"Build ID round {r+1}/{rounds} failed — retrying")
-        time.sleep(2 + random.uniform(0, 2))
-    log.error("Could not find build ID after all retries")
-    return None
-
-
-# ============================================================================
 # FEED FETCHING
 # ============================================================================
 
-def build_feed_url(build_id, cfg, city, page=1):
-    """Build the _next/data feed URL for one city in the configured region.
+def build_feed_url(cfg, city, page=1):
+    """Build the gw.yad2.co.il realestate-feed URL for one city.
 
-    Note: Yad2 ignores multiNeighborhood server-side and won't combine multiple
-    cities in one multiCity param — so we query one city at a time and narrow to
-    the wanted neighborhoods client-side via the area-keyword filter.
+    Uses Yad2's API gateway (gw host) instead of the Cloudflare-blocked www
+    _next/data endpoint — same listing shape, no BUILD_ID needed. gw validates
+    params strictly and 400s on unknown ones, so we send only the params it
+    accepts. `region` (numeric) is required. sqm is NOT a valid gw param, so
+    min_sqm is enforced client-side in parse_listing().
+
+    Note: we query one city at a time — Yad2 won't combine cities in one request,
+    and ignores neighborhood filters — so we narrow to the wanted neighborhoods
+    client-side via the area-keyword filter.
     """
     s = cfg["search"]
-    slug = s["region_slug"]
     params = {
+        "region": str(s["region"]),
+        "city": str(city),
         "maxPrice": str(s["price_max"]),
-        "multiCity": str(city),
-        "slug": slug,
     }
     if s.get("price_min"):
         params["minPrice"] = str(s["price_min"])
@@ -391,33 +362,38 @@ def build_feed_url(build_id, cfg, city, page=1):
         params["minRooms"] = str(s["rooms_min"])
     if s.get("rooms_max") and s["rooms_max"] < 99:
         params["maxRooms"] = str(s["rooms_max"])
-    if s.get("min_sqm"):
-        params["squareMeterMin"] = str(s["min_sqm"])
     if s.get("require_elevator"):
         params["elevator"] = "1"
     if page > 1:
         params["page"] = str(page)
 
     qs = "&".join(f"{k}={v}" for k, v in params.items())
-    return f"{YAD2_BASE}/realestate/_next/data/{build_id}/rent/{slug}.json?{qs}"
+    return f"{GW_FEED}?{qs}"
 
+
+# gw feed groups listings into several promotion buckets under `data`; each item
+# has the same shape regardless of bucket.
+_FEED_BUCKETS = ("private", "agency", "yad1", "platinum", "kingOfTheHar",
+                 "trio", "booster", "leadingBroker", "items", "feed_items")
+
+def _feed_data(data):
+    """Unwrap the gw feed envelope: {"data": {...}, "message": ...} → the inner dict."""
+    if not isinstance(data, dict):
+        return {}
+    d = data.get("data")
+    return d if isinstance(d, dict) else data
 
 def extract_listings(data):
-    """Extract apartment listings from Yad2's Next.js response."""
+    """Extract apartment listings from the gw realestate feed response."""
     items = []
     try:
-        queries = data.get("pageProps", {}).get("dehydratedState", {}).get("queries", [])
-        for q in queries:
-            state_data = q.get("state", {}).get("data", {})
-            if not isinstance(state_data, dict):
-                continue
-            # Listings are in "private" and "agency" arrays
-            for key in ("private", "agency", "platinum", "items", "feed_items"):
-                lst = state_data.get(key)
-                if isinstance(lst, list) and lst:
-                    for item in lst:
-                        if isinstance(item, dict) and item.get("token"):
-                            items.append(item)
+        d = _feed_data(data)
+        for key in _FEED_BUCKETS:
+            lst = d.get(key)
+            if isinstance(lst, list):
+                for item in lst:
+                    if isinstance(item, dict) and item.get("token"):
+                        items.append(item)
     except Exception as e:
         log.warning(f"Extract error: {e}")
 
@@ -433,19 +409,18 @@ def extract_listings(data):
     return unique
 
 
-def extract_pagination(data):
-    """Check if there are more pages."""
+def extract_pagination(data, page):
+    """Return True if there are more pages after the given (1-based) page.
+
+    The gw feed's pagination block has `total`/`totalPages` but no currentPage,
+    so we compare against the page we just requested.
+    """
     try:
-        queries = data.get("pageProps", {}).get("dehydratedState", {}).get("queries", [])
-        for q in queries:
-            sd = q.get("state", {}).get("data", {})
-            if isinstance(sd, dict):
-                pagination = sd.get("pagination", {})
-                if pagination:
-                    current = pagination.get("currentPage", 1)
-                    total = pagination.get("totalPages", 1)
-                    return current < total
-    except:
+        pagination = _feed_data(data).get("pagination", {})
+        total_pages = pagination.get("totalPages")
+        if total_pages:
+            return page < total_pages
+    except Exception:
         pass
     return False
 
@@ -676,22 +651,16 @@ def scrape(cfg):
     log.info(f"HTTP: {HTTP_LIB} | rooms={s['rooms_min']}-{s['rooms_max']} | "
              f"price=₪{s['price_min']:,}-{s['price_max']:,}")
 
-    # Step 1: Get build ID
-    build_id = get_build_id()
-    if not build_id:
-        log.error("Cannot get build ID — aborting")
-        return []
-
     seen, apts = set(), []
     delay = cfg["schedule"]["delay_between_requests_sec"]
 
-    # Step 2: Query each configured city separately (Yad2 won't combine cities
-    # in one request, and ignores neighborhood filters — we narrow by keyword later).
+    # Query each configured city separately (Yad2 won't combine cities in one
+    # request, and ignores neighborhood filters — we narrow by keyword later).
     for city in s["cities"]:
-        log.info(f"Querying city {city} (region {s['region_slug']})")
+        log.info(f"Querying city {city} (region {s['region']})")
         page = 1
         while page <= cfg["schedule"]["max_pages"]:
-            url = build_feed_url(build_id, cfg, city, page=page)
+            url = build_feed_url(cfg, city, page=page)
             time.sleep(delay + random.uniform(0, 1.0))
             data = fetch(url)
             if not data:
@@ -712,7 +681,7 @@ def scrape(cfg):
 
             log.info(f"  p{page}: {len(items)} items → {n} new matches")
 
-            if not extract_pagination(data):
+            if not extract_pagination(data, page):
                 break
             page += 1
 
@@ -917,14 +886,8 @@ if __name__ == "__main__":
         log.info("=" * 60)
         cfg = load_cfg()
 
-        # Test build ID
-        bid = get_build_id()
-        if not bid:
-            log.error("FAILED: Cannot get build ID")
-            sys.exit(1)
-
         # Test one feed request (first configured city)
-        url = build_feed_url(bid, cfg, cfg["search"]["cities"][0], page=1)
+        url = build_feed_url(cfg, cfg["search"]["cities"][0], page=1)
         log.info(f"Feed URL: {url}")
         data = fetch(url)
         if not data:

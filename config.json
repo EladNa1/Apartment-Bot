@@ -1,6 +1,7 @@
 {
   "search": {
     "region_slug": "coastal-north",
+    "region": 5,
     "cities": [
       4000,
       2100

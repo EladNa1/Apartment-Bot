@@ -1,0 +1,93 @@
+name: daily-scrape
+
+# Runs the Yad2 scraper in the cloud so the daily email arrives even when the
+# laptop is asleep (Modern Standby wake-timers are unreliable on that machine).
+#
+# State (apartments.db / apartments.json / config.json) is persisted on a
+# dedicated `bot-state` branch between runs — the DB carries the `notified`
+# flag so each listing is emailed once ever, and the daily commit doubles as
+# repo activity that stops GitHub auto-disabling the schedule after 60 days.
+#
+# Secrets required (repo Settings → Secrets and variables → Actions):
+#   EMAIL_USER, EMAIL_PASS, EMAIL_TO, GEMINI_API_KEY, ALLOWED_SENDERS
+#   (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID optional)
+
+on:
+  schedule:
+    # 05:00 UTC = 08:00 Israel summer (IDT). Sun-Fri (0-5), skips Saturday.
+    # GitHub cron is UTC and does NOT follow DST, so in winter this fires 07:00 local.
+    - cron: "0 5 * * 0-5"
+  workflow_dispatch: {}   # allow manual "Run workflow" from the Actions tab
+
+permissions:
+  contents: write         # needed to push the bot-state branch
+
+concurrency:
+  group: daily-scrape     # never overlap two runs
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Restore state from bot-state branch
+        run: |
+          git fetch origin bot-state || true
+          if git show-ref --verify --quiet refs/remotes/origin/bot-state; then
+            for f in apartments.db apartments.json config.json; do
+              git show "origin/bot-state:$f" > "$f" 2>/dev/null || true
+            done
+            echo "Restored state from bot-state."
+          else
+            echo "No bot-state branch yet — first run, starting fresh."
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper (single cycle)
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALLOWED_SENDERS: ${{ secrets.ALLOWED_SENDERS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scraper.py --once
+
+      - name: Save state to bot-state branch
+        if: always()   # persist even if the scrape step reported a soft failure
+        run: |
+          git config user.name  "yad2-bot"
+          git config user.email "yad2-bot@users.noreply.github.com"
+          git fetch origin bot-state || true
+          rm -rf ../state
+          if git show-ref --verify --quiet refs/remotes/origin/bot-state; then
+            git worktree add -f ../state origin/bot-state
+            git -C ../state switch -C bot-state
+          else
+            git worktree add -f --detach ../state
+            git -C ../state checkout --orphan bot-state
+            git -C ../state rm -rf . >/dev/null 2>&1 || true
+          fi
+          cp -f apartments.db apartments.json config.json ../state/ 2>/dev/null || true
+          git -C ../state add -A
+          git -C ../state commit -m "state $(date -u +%FT%TZ)" || echo "no state changes"
+          git -C ../state push -u origin bot-state
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-log
+          path: scraper.log
+          if-no-files-found: ignore
