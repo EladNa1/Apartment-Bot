@@ -6,13 +6,13 @@ changed **by replying to the alert emails**.
 
 ## Features
 
-- 🔎 Scrapes Yad2's internal Next.js feed (TLS-impersonation to pass Cloudflare)
+- 🔎 Fetches listings from Yad2's API gateway (`gw.yad2.co.il`) — no fragile build-ID, TLS-impersonation to pass Cloudflare
 - 🗺️ Targets any city/region + neighborhoods, filtered by price/rooms/size
 - 📧 Ranked HTML email alerts (photos, top N most relevant) to multiple recipients
 - 🚫 Never emails the same listing twice
 - ✉️ **Change the filter by replying to an alert in plain language** (Hebrew/English) — see below
 - 🖥️ Local web dashboard
-- ⏰ Runs unattended on a schedule via Windows Task Scheduler
+- ☁️ Runs unattended daily in the cloud (GitHub Actions) — laptop-independent; a local Windows Task Scheduler run is also supported
 
 ## Quick Start
 
@@ -58,7 +58,8 @@ the very next scan (`config.json` is re-read every run — no restart needed):
 
 | Setting | Controls |
 |---------|----------|
-| `search.region_slug` | Yad2 region landing-page slug |
+| `search.region` | **Numeric** Yad2 region ID — required by the gw feed (e.g. `5` = coastal-north) |
+| `search.region_slug` | Legacy/informational region slug (the feed uses `search.region`, not this) |
 | `search.cities` | List of numeric Yad2 city IDs |
 | `search.price_min/max` | Rent range in ₪ |
 | `search.rooms_min/max` | Room range |
@@ -70,9 +71,9 @@ the very next scan (`config.json` is re-read every run — no restart needed):
 
 To find the codes for any area, query Yad2's address API:
 `https://gw.yad2.co.il/address-autocomplete/realestate/v2?text=<URL-encoded Hebrew>`
-It returns each match's `cityId`, `hoodId`, and `regionHeb`. Put the `cityId`(s) in
-`search.cities`; the `region_slug` is the kebab-case English of `regionHeb`. All cities
-in one config should belong to the same region slug.
+It returns each match's `cityId`, `hoodId`, `regionId`, and `regionHeb`. Put the
+`cityId`(s) in `search.cities` and the `regionId` in `search.region`. All cities in one
+config must belong to the same region.
 
 ### 2. Reply to an alert email (no file editing) ⭐
 
@@ -95,30 +96,55 @@ unrecognized request is safely ignored.
 
 ## How It Works
 
-1. **Build ID** — extracts Yad2's Next.js `BUILD_ID` from the page HTML (retried hard; the page is Cloudflare-throttled). The feed lives at `/realestate/_next/data/{BUILD_ID}/rent/{region_slug}.json`.
+1. **Feed** — fetches from Yad2's API gateway `https://gw.yad2.co.il/realestate-feed/rent/feed?region={id}&city={id}&maxPrice=…&page=N`. No rotating build-ID needed. (Replaced the old www `_next/data` + `BUILD_ID` path, which the main host now Cloudflare-blocks.)
 2. **Per-city queries** — Yad2 ignores neighborhood filters server-side and won't combine cities, so each city in `search.cities` is queried separately and paginated.
 3. **Filter** — price/rooms/size enforced in `parse_listing()`; neighborhoods narrowed client-side by `target_areas` keyword match.
 4. **Dedup + new detection** — SQLite tracks every listing token; a `notified` flag ensures each listing is emailed once ever.
 5. **Rank + notify** — top `email_top_n` never-emailed listings, ordered by area priority → cheaper → parking → bigger, sent as an HTML card email.
 6. **Inbound email** — before each scan, reads whitelisted reply emails and updates the search (see above).
 
-## Automation (Windows Task Scheduler)
+## Automation
 
-Runs unattended via a task named **`Yad2ApartmentFinder`** — headless (`pythonw`),
-survives reboot (catches up if the PC was off). It runs `python scraper.py --once`
-on whatever schedule you set. Edit the task in Task Scheduler to change the time or
-frequency.
+### Cloud — GitHub Actions (recommended, laptop-independent)
+
+`.github/workflows/daily-scrape.yml` runs `scraper.py --once` on a daily cron
+(`0 5 * * 0-5` = 08:00 Israel summer time, Sun–Fri). Runs entirely on GitHub's
+runners, so the machine can be off/asleep.
+
+- **Secrets:** add the `.env` values as repo **Actions secrets** (Settings →
+  Secrets and variables → Actions): `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_TO`,
+  `GEMINI_API_KEY`, `ALLOWED_SENDERS` (+ optional Telegram). The scraper reads
+  them from the environment.
+- **State** (`apartments.db` + `apartments.json` + `config.json`) is persisted
+  between runs on a dedicated **`bot-state` branch** — the DB carries the
+  "emailed-once" flag, and the daily commit also keeps the schedule alive
+  (GitHub disables cron after 60 days with no repo commits). To re-send
+  everything, remove `apartments.db` from `bot-state`.
+- **DST caveat:** cron is UTC (no DST), so in winter runs land at 07:00 local.
+- Trigger a manual test from the **Actions tab → daily-scrape → Run workflow**.
+
+### Local — Windows Task Scheduler (optional / offline backup)
+
+A task named **`Yad2ApartmentFinder`** can run `pythonw scraper.py --once`
+headless on a local schedule. **Disable it if the cloud workflow is active**
+(`schtasks /Change /TN Yad2ApartmentFinder /DISABLE`) — it uses a separate local
+DB and would send duplicate emails.
 
 ## Files
 
 ```
-config.json       ← non-secret search settings (committed)
-.env              ← secrets (gitignored — copy from .env.example)
-scraper.py        ← main bot
-server.py         ← dashboard web server
-dashboard.html    ← frontend UI
-requirements.txt  ← Python dependencies
-apartments.db     ← SQLite database (auto-created, gitignored)
-apartments.json   ← dashboard data (auto-created, gitignored)
-scraper.log       ← timestamped log (gitignored)
+config.json                        ← non-secret search settings (committed)
+.env                               ← secrets (gitignored — copy from .env.example)
+scraper.py                         ← main bot
+llm.py                             ← Gemini/LLM connection helpers
+server.py                          ← dashboard web server
+dashboard.html                     ← frontend UI
+requirements.txt                   ← Python dependencies
+.github/workflows/daily-scrape.yml ← cloud daily run (GitHub Actions)
+apartments.db                      ← SQLite database (auto-created, gitignored)
+apartments.json                    ← dashboard data (auto-created, gitignored)
+scraper.log                        ← timestamped log (gitignored)
 ```
+
+> Cloud runs persist `apartments.db` / `apartments.json` on the `bot-state` branch
+> instead of locally.
