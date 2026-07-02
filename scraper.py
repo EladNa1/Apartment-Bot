@@ -79,21 +79,32 @@ ENV_SECRETS = {
     # ALLOWED_SENDERS is comma-separated → a list; handled specially.
 }
 
+def _clean_secret(v):
+    """Strip surrounding whitespace/quotes and any stray BOM / zero-width chars.
+
+    A UTF-8-BOM .env file (or a secret set from one) leaves a U+FEFF in the value,
+    which makes smtplib/imaplib blow up with 'ascii codec can't encode \\ufeff'.
+    """
+    return (v.strip().strip('"').strip("'")
+             .replace("﻿", "").replace("​", "").strip())
+
 def _load_env():
     """Parse a simple KEY=VALUE .env file (if present). No external dependency."""
     env = {}
     p = DIR / ".env"
     if p.exists():
-        for line in p.read_text(encoding="utf-8").splitlines():
+        # utf-8-sig transparently drops a leading BOM if the file has one.
+        for line in p.read_text(encoding="utf-8-sig").splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
             k, v = line.split("=", 1)
-            env[k.strip()] = v.strip().strip('"').strip("'")
-    # Process environment overrides the file.
+            env[k.strip()] = _clean_secret(v)
+    # Process environment overrides the file (also cleaned — cloud secrets may
+    # carry a BOM if they were copied from a UTF-8-BOM source).
     for k in list(ENV_SECRETS) + ["ALLOWED_SENDERS"]:
         if os.environ.get(k):
-            env[k] = os.environ[k]
+            env[k] = _clean_secret(os.environ[k])
     return env
 
 def load_cfg():
@@ -801,9 +812,12 @@ def build_email_html(apts, cfg):
     </body></html>"""
 
 def notify_email(apts, cfg):
+    """Send the alert email. Returns True on success, False on failure/skip —
+    the caller only marks listings `notified` when this succeeds, so a failed
+    send is retried next run instead of silently swallowing the batch."""
     n = cfg["notifications"]
     if not n.get("email_enabled") or not n.get("email_smtp") or not apts:
-        return
+        return False
     from email.mime.multipart import MIMEMultipart
     html = build_email_html(apts, cfg)
     plain = "\n".join(f"• {a['address']} | {a.get('rooms','?')} חד׳ | ₪{a.get('price',0):,} | {a['link']}"
@@ -817,8 +831,10 @@ def notify_email(apts, cfg):
         with smtplib.SMTP(n["email_smtp"], n["email_port"], timeout=30) as s:
             s.starttls(); s.login(n["email_user"], n["email_pass"]); s.send_message(msg)
         log.info(f"Email sent ({len(apts)} listings)")
+        return True
     except Exception as e:
         log.warning(f"Email err: {e}")
+        return False
 
 
 # ============================================================================
@@ -857,10 +873,14 @@ def run_once():
         if top:
             log.info(f"Notifying top {len(top)} of {len(unsent)} never-emailed matches")
             notify_tg(top, cfg)
-            notify_email(top, cfg)
-            conn.executemany("UPDATE apartments SET notified=1 WHERE item_id=?",
-                             [(a["item_id"],) for a in top])
-            conn.commit()
+            # Only burn the `notified` flag if the email actually went out —
+            # otherwise a failed send would suppress these listings forever.
+            if notify_email(top, cfg):
+                conn.executemany("UPDATE apartments SET notified=1 WHERE item_id=?",
+                                 [(a["item_id"],) for a in top])
+                conn.commit()
+            else:
+                log.warning("Email not sent — leaving listings un-notified for retry")
     conn.close()
     return new_c
 
