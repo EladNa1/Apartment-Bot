@@ -9,7 +9,7 @@
     "rooms_min": 0,
     "rooms_max": 99,
     "price_min": 0,
-    "price_max": 3800,
+    "price_max": 4100,
     "exclude_ground_floor": false,
     "prefer_parking": true,
     "require_elevator": false,
