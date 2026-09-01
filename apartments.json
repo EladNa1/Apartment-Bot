@@ -1,5 +1,5 @@
 {
-  "updated": "2026-08-31T11:18:07.012828",
+  "updated": "2026-09-01T09:42:22.090360",
   "count": 182,
   "config": {
     "rooms": "0-99",
@@ -560,7 +560,7 @@
       "tags": [],
       "lat": 32.753529,
       "lon": 34.969992,
-      "notified": 0
+      "notified": 1
     },
     {
       "item_id": "8zh0i8pd",
@@ -1044,7 +1044,7 @@
       "tags": [],
       "lat": 32.806453,
       "lon": 34.963024,
-      "notified": 0
+      "notified": 1
     },
     {
       "item_id": "biahpmu1",
@@ -1398,7 +1398,7 @@
       "tags": [],
       "lat": 32.810013,
       "lon": 34.959295,
-      "notified": 0
+      "notified": 1
     },
     {
       "item_id": "xfk7epad",
@@ -7243,7 +7243,7 @@
       "tags": [],
       "lat": 32.808093,
       "lon": 34.962107,
-      "notified": 0
+      "notified": 1
     },
     {
       "item_id": "q8xjmzom",
